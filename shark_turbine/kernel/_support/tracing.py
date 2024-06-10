@@ -30,6 +30,7 @@ from ..lang.grid import Grid
 from ..lang.types import (
     Index,
 )
+from .nodes import CustomNode, PlaceholderNode, ReductionNode, UnknownNode
 
 from .regions import RegionGraph, SubgraphTracer
 
@@ -177,6 +178,29 @@ class CompiledContext(BaseContext):
             backed_sym_index_type(BoundedRelation(0, n, upper_inclusive=False))
             for n in grid_type.symbolic_shape
         ]
+        self.custom_ops: dict[str, CustomNode] = {}
+
+    def register_custom_op(self, name: str, op: CustomNode):
+        self.custom_ops[name] = op
+
+        def handler(*args, **kwargs):
+            return op.handle(self.region_graph, *args, **kwargs)
+
+        setattr(self, f"handle_{name}", handler)
+
+    def node(self, node: fx.Node) -> CustomNode:
+        for name, nodeT in self.custom_ops.items():
+            # The fx_nodes have a suffix depending on the number of occurrences
+            # of similar nodes. We are only interested in the name prefix.
+
+            # TODO: Instead simply shape the suffix off, as this depends on the
+            #       iteration order for nodes sharing a prefix,
+            #       e.g. read and read_shared
+            if node.name.startswith(name):
+                return nodeT.from_fx_node(node)
+            if node.op == "placeholder":
+                return PlaceholderNode.from_fx_node(node)
+        return UnknownNode.from_fx_node(node)
 
     ### ========================================================================
     ### Core Operations

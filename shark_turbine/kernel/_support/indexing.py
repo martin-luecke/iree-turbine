@@ -53,7 +53,7 @@ def index_expr(value: Any) -> IndexExpr:
 
 
 class _IndexSymbolExpando:
-    def __getattr__(self, n):
+    def __getattr__(self, n) -> sympy.Symbol:
         return index_symbol(n)
 
 

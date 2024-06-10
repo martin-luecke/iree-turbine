@@ -1,6 +1,12 @@
 from typing import Callable, Optional
 import inspect
 
+from shark_turbine.kernel.wave.constraints import (
+    Constraint,
+    WorkgroupConstraint,
+    get_grid_shape,
+)
+
 from ..compiler.ir import Context, Operation
 from ..lang import Grid
 from .._support.tracing import (
@@ -15,9 +21,9 @@ from .._support.nodes import *
 __all__ = ["wave"]
 
 
-def wave():
+def wave(constraints: list[Constraint]):
     def decorator(f: Callable[[Any], Any]) -> "LaunchableWave":
-        return LaunchableWave(f.__name__, f)
+        return LaunchableWave(constraints, f.__name__, f)
 
     return decorator
 
@@ -25,15 +31,26 @@ def wave():
 class LaunchableWave(Launchable):
     def __init__(
         self,
+        constraints: list[Constraint],
         name: str,
         eager_function: Callable[[Any], Any],
     ):
         super().__init__(eager_function)
 
-        self.grid_type = Grid[None, None]
+        self.constraints = constraints
         self._name = name
         self._f = eager_function
         self._sig = inspect.signature(eager_function)
+
+        self.grid_type = Grid[tuple(get_grid_shape(self.workgroup_constraints))]
+
+    @property
+    def workgroup_constraints(self) -> list[WorkgroupConstraint]:
+        return [
+            constraint
+            for constraint in self.constraints
+            if isinstance(constraint, WorkgroupConstraint)
+        ]
 
     def _trace(self, dump: bool = False) -> CapturedTrace:
         region_graph = KernelRegionGraph()

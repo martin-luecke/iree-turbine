@@ -30,6 +30,7 @@ from ..lang.grid import Grid
 from ..lang.types import (
     Index,
 )
+from .nodes import CustomNode, PlaceholderNode, ReductionNode, UnknownNode
 
 from .regions import RegionGraph, SubgraphTracer
 
@@ -177,6 +178,20 @@ class CompiledContext(BaseContext):
             backed_sym_index_type(BoundedRelation(0, n, upper_inclusive=False))
             for n in grid_type.symbolic_shape
         ]
+
+    def register_custom_op(self, name: str, op: CustomNode):
+        def handler(*args, **kwargs):
+            return op.handle(self.region_graph, *args, **kwargs)
+
+        setattr(self, f"handle_{name}", handler)
+
+    def node(self, node: fx.Node) -> CustomNode:
+        if node.op == "placeholder":
+            return PlaceholderNode.from_fx_node(node)
+        # If the node was created as a CustomNode it has a corresponding field
+        if hasattr(node, "tkw_op"):
+            return node.tkw_op.from_fx_node(node)
+        return UnknownNode.from_fx_node(node)
 
     ### ========================================================================
     ### Core Operations

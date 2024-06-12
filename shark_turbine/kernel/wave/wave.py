@@ -1,7 +1,9 @@
 from typing import Any, Callable, Optional, Type
 import inspect
 
+from ..compiler import builder, dispatch_codegen, kernel_codegen
 from ..compiler.ir import Context, Operation
+from .codegen import WaveEmitter
 from ..lang import Grid
 from .._support.tracing import (
     CapturedTrace,
@@ -9,16 +11,17 @@ from .._support.tracing import (
     KernelRegionGraph,
     Launchable,
 )
-from .._support.nodes import (
-    RegisterNode,
-    CustomNode,
-    MmaNode,
-    ReadNode,
-    WriteNode,
-    ReductionNode,
-    PlaceholderNode,
-)
 
+# from .._support.nodes import (
+#     NewRegister,
+#     CustomOp,
+#     MMA,
+#     Read,
+#     Write,
+#     Reduction,
+#     Placeholder,
+# )
+from .._support.nodes import *
 
 __all__ = ["wave"]
 
@@ -35,6 +38,7 @@ class LaunchableWave(Launchable):
         self,
         name: str,
         eager_function: Callable[[Any], Any],
+        debug: bool = True,
     ):
         super().__init__(eager_function)
 
@@ -42,17 +46,18 @@ class LaunchableWave(Launchable):
         self._name = name
         self._f = eager_function
         self._sig = inspect.signature(eager_function)
+        self.debug = debug
 
-    def _trace(self, dump: bool = False) -> CapturedTrace:
+    def _trace(self) -> CapturedTrace:
         region_graph = KernelRegionGraph()
         with CompiledContext(region_graph, grid_type=self.grid_type) as context:
-            custom_ops: dict[str, Type[CustomNode]] = {
-                "register": RegisterNode,
-                "mma": MmaNode,
-                "read": ReadNode,
-                "write": WriteNode,
-                "reduction": ReductionNode,
-                "placeholder": PlaceholderNode,
+            custom_ops: dict[str, Type[CustomOp]] = {
+                "register": NewRegister,
+                "mma": MMA,
+                "read": Read,
+                "write": Write,
+                "reduction": Reduction,
+                "placeholder": Placeholder,
             }
 
             # Register custom ops
@@ -63,7 +68,7 @@ class LaunchableWave(Launchable):
                 root_name, _ = subtracer.trace(self._f)
                 trace = CapturedTrace(region_graph, root_name)
 
-            if dump:
+            if self.debug:
                 print(trace.get_root_graph())
                 for node in trace.get_root_graph().nodes:
                     print(context.node(node))
@@ -73,21 +78,30 @@ class LaunchableWave(Launchable):
         self,
         args,
         kwargs,
-        dump: bool = False,
         context: Optional[Context] = None,
         module_op: Optional[Operation] = None,
     ) -> CapturedTrace:
         # Trace the function.
-        trace = self._trace(dump=dump)
+        trace = self._trace()
 
-        # TODO: Get kernel signature from the trace.
-        #       We want to reuse the existing kernel_codegen for this which
-        #       requires making it aware of tkw.Memory
+        kernel_sig = kernel_codegen.KernelSignature()
+        # Fixed for now, will be determined through constraints
+        self.grid_type.dims = [32, 32]  # Will be determined by constraints
+        grid = self.grid_type
+
+        mb = builder.ModuleBuilder(context=context, module_op=module_op)
+        entrypoint_name = self._name
+        exe = dispatch_codegen.StreamExecutable(mb, name=entrypoint_name)
+        dispatch_entrypoint = exe.define_entrypoint(entrypoint_name, kernel_sig, grid)
+
+        emitter = WaveEmitter(dispatch_entrypoint, trace)
+        emitter.emit(trace.get_root_graph())
+
         return trace
 
     def test_execute(self, args, kwargs):
         # For now only tracing
-        self._trace_and_get_kernel_signature(args, kwargs, dump=True)
+        self._trace_and_get_kernel_signature(args, kwargs)
 
     def aot_execute(self, args, kwargs):
         raise NotImplementedError("AOT execution for wave not implemented yet.")

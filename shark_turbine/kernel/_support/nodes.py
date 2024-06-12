@@ -1,5 +1,7 @@
 from abc import ABC
 from dataclasses import dataclass, field
+from functools import wraps
+import sys
 from typing import Any, Optional, Sequence, Type, TypeVar, final
 import torch.fx as fx
 
@@ -18,8 +20,46 @@ def get_node_name(string: str, skip_first: bool = True):
             snakeString += "_" + i.lower()
         else:
             snakeString += i
-    # Drop the "_node" suffix
-    return snakeString[:-5]
+    return snakeString
+
+
+T = TypeVar("T")
+
+
+def define_op(op_name: str):
+    def decorator(cls):
+        def new_function(*args: Any, **kwargs):
+            # TODO: This function represents the new operation, so it needs
+            # the proper fields from the dataclass as arguments.
+            # For the actual body look at the `define_op` in base.py
+            # TODO: Make sure this is picked up properly by the tracing
+            print("This is the new function added by the decorator.")
+
+        current_module = sys.modules[cls.__module__]
+        setattr(current_module, op_name, new_function)
+
+        original_init = cls.__init__
+
+        @wraps(original_init)
+        def new_init(self, *args, **kwargs):
+            # Call the original __init__ method
+            original_init(self, *args, **kwargs)
+
+            # Mock only, I don't think we will have to modify the init.
+            # This is for prototyping purposes.
+            # Iterate through the fields and modify them
+            for field_name, field_def in cls.__dataclass_fields__.items():
+                value = getattr(self, field_name)
+                if isinstance(
+                    value, int
+                ):  # Example modification: double integer values
+                    setattr(self, field_name, value * 2)
+            print(f"invoked new op:{op_name}")
+
+        # cls.__init__ = new_init
+        return cls
+
+    return decorator
 
 
 CustomNodeT = TypeVar("CustomNodeT", bound="CustomNode")
@@ -27,13 +67,13 @@ PlaceholderNodeT = TypeVar("PlaceholderNodeT", bound="PlaceholderNode")
 
 
 @dataclass
-class CustomNode(ABC):
+class CustomOp(ABC):
     """
     Base class for all custom fx nodes.
     """
 
     graph: fx.Graph
-    op: Any
+    fx_op: Any
     fx_node: Optional[fx.Node] = field(default=False, init=False)
 
     @classmethod
@@ -57,7 +97,7 @@ class CustomNode(ABC):
         arg_list = tuple([value for _, value in vars(self).items()][2:])
         self.fx_node = region_graph.create_proxy(
             "call_function",
-            target=self.op,
+            target=self.fx_op,
             args=arg_list,
             kwargs={},
         )
@@ -78,7 +118,7 @@ class CustomNode(ABC):
 
 @final
 @dataclass
-class UnknownNode(CustomNode):
+class Unknown(CustomOp):
     """
     Represents an fx.Node that has no corresponding CustomNode class.
     """
@@ -87,7 +127,7 @@ class UnknownNode(CustomNode):
     kwargs: dict[Any, Any]
 
     @classmethod
-    def from_fx_node(cls, node: fx.Node) -> "UnknownNode":
+    def from_fx_node(cls, node: fx.Node) -> "Unknown":
         instance = cls(node.graph, node.op, node.args, node.kwargs)
         instance.fx_node = node
         return instance
@@ -100,7 +140,7 @@ class UnknownNode(CustomNode):
 
 
 @dataclass
-class PlaceholderNode(CustomNode):
+class Placeholder(CustomOp):
     """
     Represents a placeholder node in the graph, i.e. an input to a function.
     """
@@ -113,32 +153,32 @@ class PlaceholderNode(CustomNode):
         return cls(node.graph, node.op, node.name, node.type)
 
 
-# Nodes modeling TKW operations in the kernel language
+# Ops modeling TKW operations in the kernel language
 
 
 @dataclass
-class RegisterNode(CustomNode):
+class NewRegister(CustomOp):
     shape: tuple[IndexExpr, ...]
     dtype: DataType
     value: float
 
 
 @dataclass
-class MmaNode(CustomNode):
+class MMA(CustomOp):
     lhs: fx.Node
     rhs: fx.Node
     acc: fx.Node
 
 
 @dataclass
-class ReadNode(CustomNode):
+class Read(CustomOp):
     memory: fx.Proxy
     elements_per_thread: Optional[Any] = None
     type: Optional[Type[Register]] = None
 
 
 @dataclass
-class ReductionNode(CustomNode):
+class Reduction(CustomOp):
     axis: IndexExpr
     init_args: Sequence[Any]
     subgraph_name: str
@@ -149,7 +189,7 @@ class ReductionNode(CustomNode):
         def wrapper(f):
             with graph.subtracer() as subtracer:
                 subgraph_name, implicit_captures = subtracer.trace(f)
-            node = ReductionNode(
+            node = Reduction(
                 graph,
                 *args,
                 **kwargs,
@@ -163,8 +203,9 @@ class ReductionNode(CustomNode):
         return wrapper
 
 
+@define_op("write2")
 @dataclass
-class WriteNode(CustomNode):
+class Write(CustomOp):
     register_: fx.Proxy
     memory: fx.Proxy
     elements_per_thread: Optional[Any]

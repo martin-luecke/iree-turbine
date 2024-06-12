@@ -4,6 +4,7 @@ import torch
 import shark_turbine.kernel as tk
 import shark_turbine.kernel.lang as tkl
 import shark_turbine.kernel.wave as tkw
+import shark_turbine.kernel._support.nodes as nodes
 
 
 class Test(unittest.TestCase):
@@ -50,7 +51,9 @@ class Test(unittest.TestCase):
                 return acc
 
             # repeat represents the results of the loop
-            tkw.write(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
+            tkw.write2(repeat, c, elements_per_thread=STORE_ELEMS_PER_THREAD)
+            # tkw.new_function()
+            pass
 
         hyperparams = {
             ADDRESS_SPACE: tkl.AddressSpace.SHARED_MEMORY.value,

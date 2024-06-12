@@ -30,7 +30,7 @@ from ..lang.grid import Grid
 from ..lang.types import (
     Index,
 )
-from .nodes import CustomNode, PlaceholderNode, ReductionNode, UnknownNode
+from .nodes import CustomOp, Placeholder, Reduction, Unknown
 
 from .regions import RegionGraph, SubgraphTracer
 
@@ -179,19 +179,19 @@ class CompiledContext(BaseContext):
             for n in grid_type.symbolic_shape
         ]
 
-    def register_custom_op(self, name: str, op: CustomNode):
+    def register_custom_op(self, name: str, op: CustomOp):
         def handler(*args, **kwargs):
             return op.handle(self.region_graph, *args, **kwargs)
 
         setattr(self, f"handle_{name}", handler)
 
-    def node(self, node: fx.Node) -> CustomNode:
+    def node(self, node: fx.Node) -> CustomOp:
         if node.op == "placeholder":
-            return PlaceholderNode.from_fx_node(node)
+            return Placeholder.from_fx_node(node)
         # If the node was created as a CustomNode it has a corresponding field
         if hasattr(node, "tkw_op"):
             return node.tkw_op.from_fx_node(node)
-        return UnknownNode.from_fx_node(node)
+        return Unknown.from_fx_node(node)
 
     ### ========================================================================
     ### Core Operations
@@ -404,14 +404,11 @@ class Launchable(ABC):
         return launch_context.launch(self, args, kwargs)
 
     @abstractmethod
-    def eager_execute(self, args, kwargs):
-        ...
+    def eager_execute(self, args, kwargs): ...
 
-    def aot_execute(self, args, kwargs):
-        ...
+    def aot_execute(self, args, kwargs): ...
 
-    def test_execute(self, args, kwargs):
-        ...
+    def test_execute(self, args, kwargs): ...
 
 
 class LaunchContext(ABC):
@@ -450,8 +447,7 @@ class LaunchContext(ABC):
         context.pop(LaunchContext, self)
 
     @abstractmethod
-    def launch(self, launchable: Launchable, args, kwargs):
-        ...
+    def launch(self, launchable: Launchable, args, kwargs): ...
 
 
 class DebugLaunchContext(LaunchContext):

@@ -1,9 +1,17 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Optional
+from enum import Enum
+from typing import Optional, Sequence
 import shark_turbine.kernel.lang as tkl
 from sympy import Expr, Symbol
+
+from shark_turbine.kernel.ops.wave_ops import MMA
 from .._support.indexing import IndexExpr, IndexSymbol
+
+
+class MMAType(Enum):
+    F32_16x16x16_F16 = 0
+    F32_32x32x8_F16 = 1
 
 
 @dataclass
@@ -18,8 +26,36 @@ class Constraint(ABC):
     """
 
     @abstractmethod
-    def apply(self) -> Expr:
+    def apply(self) -> IndexExpr:
         pass
+
+
+@dataclass
+class HardwareConstraint(Constraint):
+    """
+    A constraint of the form
+        tkw.HardwareConstraint(threads_per_wave = N,
+                               mma_type = 'MFMA_F32_16x16x16_F16')
+    specifies that the hardware supports N threads per wave and that
+    we want all mma operations in the microkernel to be
+    mapped to a hardware mma instruction of shape (16x16x16).
+    This translates to a hardware specific index constraint.
+    """
+
+    mma_type: MMAType
+    threads_per_wave: int
+    waves_per_block: Optional[Sequence[int]]
+
+    def mma_matrix_shapes(self):
+        # TODO: Eventually the shapes and indices should be provided by a tool
+        match self.mma_type:
+            case MMAType.F32_16x16x16_F16:
+                return (16, 16, 16)
+            case MMAType.F32_32x32x8_F16:
+                return (32, 32, 8)
+
+    def apply(self) -> IndexExpr:
+        raise NotImplementedError("Not yet implemented")
 
 
 @dataclass
@@ -36,7 +72,7 @@ class WorkgroupConstraint(Constraint):
     tile_size: Symbol
     workgroup_dim: int
 
-    def apply(self) -> Expr:
+    def apply(self) -> IndexExpr:
         match self.workgroup_dim:
             case 0:
                 wg_dim = tkl.sym.WG0
@@ -47,7 +83,7 @@ class WorkgroupConstraint(Constraint):
         return wg_dim * self.tile_size
 
 
-def get_grid_shape(wg_constraints: list[WorkgroupConstraint]) -> list[Expr]:
+def get_grid_shape(wg_constraints: list[WorkgroupConstraint]) -> list[IndexExpr]:
     grid: list[Expr] = [Expr(1) for _ in range(len(wg_constraints))]
     for constraint in wg_constraints:
         grid[constraint.workgroup_dim] = constraint.dim // constraint.tile_size

@@ -1,7 +1,7 @@
-from math import e
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional
 import inspect
-import os
+
+from shark_turbine.kernel._support.indexing import IndexingContext
 
 from ..compiler import builder, dispatch_codegen, kernel_codegen
 from ..compiler.ir import Context, Operation
@@ -92,6 +92,9 @@ class LaunchableWave(Launchable):
     ) -> CapturedTrace:
         # Trace the function.
         graph = self._trace()
+
+        idxc = IndexingContext.current()
+        idxc.finalize()
 
         # Expansion
         expand_graph(graph, self.constraints)

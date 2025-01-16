@@ -216,7 +216,7 @@ def testGemm(
                     dump_perf, "iree_" + perf_filename
                 )
                 config["benchmark_repetitions"] = 10
-                
+
         iree_ref = torch.zeros(shape[0], shape[1], dtype=torch.float32)
         generate_iree_ref("mmt", [a, b], [iree_ref], config, run_bench=run_bench)
         assert_close(c, iree_ref, check_device=False)

@@ -39,7 +39,7 @@ from .utils import (
     initialize_iter_args,
     print_graph,
     print_subgraph,
-    print_trace
+    print_trace,
 )
 from .minimize_global_loads import minimize_global_loads
 from .decompose_reduce_ops import decompose_reduce_ops
@@ -75,7 +75,6 @@ import sympy
 
 __all__ = ["wave", "wave_trace_only"]
 
-inject_custom_kernel = True
 
 def wave(constraints: Optional[list[Constraint]] = None):
     def decorator(f: Callable[..., Any]) -> "LaunchableWave":
@@ -502,26 +501,32 @@ class LaunchableWave(Launchable):
             host_codegen.isolated_test_call(
                 mb, exe, kernel_sig, entrypoint_name, dynamic_symbols
             )
-            
-            if inject_custom_kernel:
-                # kernel = "gemm_2048_1280_1280_vanilla.mlir"
-                kernel = "gemm_2048_1280_1280_double_buffering.mlir"
-                # kernel = "gemm_2048_1280_1280_double_buffering_rearranged.mlir"
+            inject_custom_kernel = True
 
+            if inject_custom_kernel:
+                # kernel = "0_gemm_2048_1280_1280_vanilla.mlir"
+                # kernel = "1_gemm_2048_1280_1280_double_buffering.mlir"
+                # kernel = "2_gemm_2048_1280_1280_double_buffering_rearranged.mlir"
+                # kernel = "3_gemm_2048_1280_1280_double_buffering_one_buffer.mlir"
+                # kernel = "4_gemm_2048_1280_1280_double_buffering_one_buffer_base_address.mlir"
+
+                kernel = "gemm_2048_1280_5120_0_vanilla.mlir"
 
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 # Create full path to the MLIR file
                 file_path = os.path.join(current_dir, kernel)
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     custom_kernel = f.read()
                     with mb.context:
-                        # This only works properly if the kernel has exactly the 
+                        # This only works properly if the kernel has exactly the
                         # same sizes, args and so on as the kernel we invoke wave with.
 
                         mb.module_op = builtin_d.ModuleOp.parse(custom_kernel)
                         print("Injected custom kernel string")
 
             asm = mb.module_op.get_asm()
+            if not inject_custom_kernel:
+                print(asm)
 
             kernel_inputs = []
             kernel_outputs = []

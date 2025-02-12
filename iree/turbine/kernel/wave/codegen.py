@@ -101,7 +101,13 @@ from .constraints import (
 from .utils import subs_idxc, find_index_bounds, get_hardware_vector_map
 
 # Indexing imports.
-from .._support.indexing import IndexingContext, IndexExpr, IndexSequence, index_symbol
+from .._support.indexing import (
+    IndexingContext,
+    IndexExpr,
+    IndexSequence,
+    index_symbol,
+    xor,
+)
 from .scheduling.resources import get_scheduling_mask
 
 
@@ -518,6 +524,14 @@ def gen_sympy_index(dynamics: dict[IndexSymbol, Value], expr: sympy.Expr) -> OpR
                     stack.append(_Rational(_get_const(1), base))
                 else:
                     stack.append(base)
+            case xor():
+                lhs = stack.pop()
+                rhs = stack.pop()
+                _enforce_non_rational(lhs, term)
+                _enforce_non_rational(rhs, term)
+                elem_type = get_type_or_element_type(rhs.type)
+                res = arith_d.xori(lhs, rhs)
+                stack.append(res)
             case sympy.UnevaluatedExpr():
                 continue
             case sympy.functions.elementary.piecewise.ExprCondPair():
